@@ -10,7 +10,8 @@
     "prebuild": "npm run copy:figures",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postbuild": "node -e \"require(\\\"fs\\\").copyFileSync(\\\"dist/index.html\\\", \\\"dist/404.html\\\")\""
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",
