@@ -1,0 +1,36 @@
+{
+  "name": "tasca-2011-dpll-teaching-site",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Teaching website for the behavioral simulator of Tasca 2011 JSSC fractional-N DPLL with BBPD + DTC.",
+  "scripts": {
+    "copy:figures": "node scripts/copy-figures.mjs",
+    "predev": "npm run copy:figures",
+    "prebuild": "npm run copy:figures",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "katex": "^0.16.11",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-katex": "^3.0.1",
+    "react-router-dom": "^6.26.2",
+    "react-syntax-highlighter": "^16.1.1"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.7",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@types/react-katex": "^3.0.4",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.45",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.6"
+  }
+}
