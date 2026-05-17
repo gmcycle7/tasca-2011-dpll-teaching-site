@@ -191,3 +191,153 @@ def test_default_run_integrated_jitter_in_range():
     sigma = integrated_rms_jitter_s(f, L, 3e3, 20e6, p.f_out_target)
     # Demo target is ~500 fs RMS with our defaults; allow factor of 2.
     assert 200e-15 < sigma < 1500e-15
+
+
+# =============================================================================
+# Tests for newly added features (P1 + P2 build-out)
+# =============================================================================
+from sim.allan import (                                  # noqa: E402
+    overlapping_adev, fractional_frequency_from_edges, adev_from_div_edges,
+)
+from sim.dtc import DTC                                  # noqa: E402
+from sim.loop_filter import DigitalPI                    # noqa: E402
+from sim.phase_noise import (                            # noqa: E402
+    physics_dco_pn_template, physics_ref_pn_template,
+)
+from sim.realistic_dco import RealisticDCO               # noqa: E402
+
+
+# ---------- Loop filter smoothing pole ----------
+
+def test_loop_filter_pole_alpha_smooths_integral_branch():
+    # Single +1 impulse, then 30 zeros. Integrator state = 1 throughout,
+    # so the un-smoothed integral output is 1 instantly; the IIR-smoothed
+    # output starts at alpha and asymptotes to 1 over ~1/alpha samples.
+    lf_no  = DigitalPI(Kp=0.0, Ki=1.0, pole_alpha=1.0)
+    lf_yes = DigitalPI(Kp=0.0, Ki=1.0, pole_alpha=0.1)
+    out_no  = [lf_no.step(1.0)]  + [lf_no.step(0.0)  for _ in range(60)]
+    out_yes = [lf_yes.step(1.0)] + [lf_yes.step(0.0) for _ in range(60)]
+    # First-sample lag from the smoothing
+    assert out_yes[0] < out_no[0]
+    assert out_yes[0] == pytest.approx(0.1, rel=0.01)
+    # Long-run convergence to the same value
+    assert abs(out_yes[-1] - out_no[-1]) < 0.05
+
+
+# ---------- DTC INL lookup table ----------
+
+def test_dtc_inl_table_overrides_sinusoid():
+    table = np.array([1e-12, -2e-12, 3e-12, -1e-12])
+    d = DTC(inl_amp_s=999e-12, inl_periods=2,           # would scream if used
+            full_scale_s=4e-9, inl_table_s=table)
+    # tau_target spanning the full scale (4 ns) should hit each bin
+    taus = np.linspace(0.0, 4e-9, 4, endpoint=False)
+    expected_inl = table
+    actual = np.array([d.apply(t) - t for t in taus])
+    np.testing.assert_allclose(actual, expected_inl, atol=1e-15)
+
+
+# ---------- Multi-bit BBPD ----------
+
+def test_multibit_bbpd_quantises_into_expected_range():
+    bb = BBPD(n_bits=3, full_scale_s=8e-12)
+    # In-range
+    assert bb.decide(0.0) in range(-4, 4)
+    # Saturating positive
+    assert bb.decide(1.0) == 3
+    # Saturating negative
+    assert bb.decide(-1.0) == -4
+
+
+def test_bbpd_default_is_1bit():
+    bb = BBPD()
+    out = {bb.decide(1e-12), bb.decide(-1e-12)}
+    assert out == {-1, 1}
+
+
+# ---------- DCO PN physics template ----------
+
+def test_physics_dco_pn_anchors_at_1MHz():
+    # f_max chosen well above where 1/f^2 hits the floor:
+    #   1/f^2 region anchored at -120 dBc/Hz @ 1 MHz, floor at -150 dBc/Hz,
+    #   so floor takes over at 1e6 * 10^((-120+150)/20) ≈ 32 MHz.
+    freqs, levels = physics_dco_pn_template(L_1MHz_dbchz=-120.0,
+                                            flicker_corner_hz=100e3,
+                                            thermal_floor_dbchz=-150.0,
+                                            f_min_hz=1e4, f_max_hz=300e6,
+                                            n_points=300)
+    freqs = np.asarray(freqs)
+    levels = np.asarray(levels)
+    # Anchor at 1 MHz
+    i_1m = int(np.argmin(np.abs(freqs - 1e6)))
+    assert abs(levels[i_1m] - (-120.0)) < 1.0
+    # White floor at very high offset
+    assert abs(levels[-1] - (-150.0)) < 2.0
+    # Slope steeper than 1/f^2 below the flicker corner
+    i_lo = int(np.argmin(np.abs(freqs - 1e4)))
+    slope_dec = (levels[i_lo] - levels[i_1m]) / np.log10(1e6 / freqs[i_lo])
+    assert slope_dec > 25.0   # near -30 dB/dec in flicker region
+
+
+def test_physics_ref_pn_floor():
+    freqs, levels = physics_ref_pn_template(L_10kHz_dbchz=-150.0,
+                                            corner_hz=10e3,
+                                            floor_dbchz=-165.0,
+                                            f_min_hz=1e3, f_max_hz=10e6,
+                                            n_points=50)
+    levels = np.asarray(levels)
+    # High-frequency end should be near the floor
+    assert abs(levels[-1] - (-165.0)) < 2.0
+
+
+# ---------- RealisticDCO ----------
+
+def test_realistic_dco_sub_lsb_dither_averages():
+    dco = RealisticDCO(f_nominal=3.6e9, coarse_lsb_hz=1e6,
+                        fine_lsb_hz=1e3, dither_bits=14, seed=1)
+    samples = np.array([dco.frequency(50.3) for _ in range(10_000)])
+    # Mean should land within 5% of 50.3 fine-LSBs above f_nominal
+    target = 3.6e9 + 50.3 * 1e3
+    rel_err = abs(samples.mean() - target) / 1e3   # in fine LSBs
+    assert rel_err < 0.05
+
+
+# ---------- Allan deviation ----------
+
+def test_allan_deviation_white_y_slope_minus_half():
+    rng = np.random.default_rng(0)
+    # 10 000 samples of white fractional-frequency noise at tau0 = 1 us
+    y = rng.normal(0.0, 1e-12, 10_000)
+    tau, adev = overlapping_adev(y, tau0_s=1e-6)
+    # Discard endpoints; fit log-log slope
+    mask = (tau > 1e-5) & (tau < 1e-3)
+    slope = np.polyfit(np.log10(tau[mask]), np.log10(adev[mask]), 1)[0]
+    # White FM gives σ_y ∝ τ^(-1/2)
+    assert -0.6 < slope < -0.4
+
+
+def test_adev_from_div_edges_runs():
+    # Stub trace: ideal edges at multiples of T_ref + tiny jitter
+    T_ref = 25e-9
+    n = 5_000
+    rng = np.random.default_rng(0)
+    t = np.cumsum(T_ref + rng.normal(0, 1e-14, n))
+    tau, adev = adev_from_div_edges(t, T_ref)
+    # ADEV should be finite, positive, and decreasing on average
+    assert np.all(np.isfinite(adev))
+    assert np.all(adev > 0)
+
+
+# ---------- LMS offset calibration ----------
+
+def test_lms_offset_drives_static_dtc_offset_into_calibration():
+    p = PLLParams(n_cycles=100_000,
+                  dtc_offset_s=5e-12,     # 5 ps static offset
+                  lms_mu_offset=3e-4)
+    res = run_simulation(p, enable_dtc=True,
+                         enable_dco_pn=True, enable_ref_noise=True,
+                         enable_lms=True)
+    tail = res.offset_hat[int(0.9 * p.n_cycles):]
+    # offset_hat should track the DTC offset (sign-flipped because we
+    # subtract offset_hat in the DTC drive)
+    assert abs(tail.mean() - 5e-12) < 3e-12

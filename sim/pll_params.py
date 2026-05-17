@@ -10,7 +10,10 @@ Convention (used consistently across the simulator):
 Source tags in docs/assumptions.md identify which values come from the
 paper, which are derived, and which are estimated defaults.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional, Tuple
+
+import numpy as np
 
 
 @dataclass
@@ -18,6 +21,11 @@ class PLLParams:
     # ----- Reference clock -----
     f_ref: float = 40e6                  # Hz; PAPER (to confirm in PDF)
     ref_jitter_rms_s: float = 80e-15     # ESTIMATED crystal-class
+    # Optional reference phase-noise template; if both freqs and levels
+    # are set, the simulator generates coloured ref jitter instead of
+    # white sigma noise.
+    ref_pn_freqs_hz: Optional[Tuple[float, ...]] = None
+    ref_pn_levels_dbchz: Optional[Tuple[float, ...]] = None
 
     # ----- Output carrier / DCO nominal -----
     # Default chosen fractional so alpha != 0 exercises the DSM/DTC path.
@@ -31,6 +39,8 @@ class PLLParams:
 
     # ----- BBPD -----
     bbpd_meta_noise_rms_s: float = 0.0   # s; optional decision noise
+    bbpd_bits: int = 1                   # 1 = sign(); >1 = mid-tread quantiser
+    bbpd_full_scale_s: float = 5e-12     # used only when bbpd_bits > 1
 
     # ----- DTC -----
     dtc_gain_err: float = 0.0            # relative; 0 = ideal
@@ -38,6 +48,10 @@ class PLLParams:
     dtc_quant_lsb_s: float = 1e-12       # s; ESTIMATED 1 ps LSB
     dtc_inl_amp_s: float = 0.0           # s; sinusoidal-INL amplitude
     dtc_inl_periods: int = 4             # ripple periods over full scale
+    # Optional lookup table: per-code residual delay (length 2^N_codes).
+    # When set, this REPLACES the sinusoidal INL model.
+    dtc_inl_table_s: Optional[np.ndarray] = None
+    dtc_inl_table_full_scale_s: float = 25e-9
 
     # ----- Digital loop filter (PI) -----
     # ESTIMATED. With default K_dco = 10 kHz/LSB and f_ref = 40 MHz these
@@ -45,26 +59,33 @@ class PLLParams:
     Kp: float = 8.0
     Ki: float = 0.5
     u_init: float = 0.0                  # initial DCO tuning word
+    # Optional smoothing pole on the integral branch.  alpha in (0,1] is
+    # the IIR coefficient: y[k] = alpha*x[k] + (1-alpha)*y[k-1].
+    # alpha = 1.0 => no smoothing (default).
+    loop_filter_pole_alpha: float = 1.0
 
-    # ----- LMS adaptive DTC gain calibration -----
-    # When enabled in run_simulation, the digital-side DTC drive is scaled
-    # by an adaptive coefficient g_hat updated as
-    #   g_hat[k+1] = g_hat[k] - mu * s_bbpd[k] * e_dsm[k]
-    # which drives g_hat toward 1/(1 + dtc_gain_err) to null the residual
-    # correlation between BBPD output and DSM residue.
-    lms_mu: float = 1e-4                 # ESTIMATED; demo-friendly step
-    lms_g_hat_init: float = 1.0          # start from "I think the gain is right"
+    # ----- LMS adaptive DTC calibration -----
+    lms_mu: float = 1e-4                 # gain-cal step
+    lms_g_hat_init: float = 1.0
+    # Offset-cal (subtract a learned constant from DTC drive)
+    lms_mu_offset: float = 0.0           # 0 = disabled
+    # INL-cal (piecewise: 16-bin table of corrections, learned per code-bin)
+    lms_mu_inl: float = 0.0              # 0 = disabled
+    lms_inl_n_bins: int = 16
 
-    # ----- DCO phase noise template -----
+    # ----- DCO phase noise template (corner-point form) -----
     dco_pn_freqs_hz: tuple = (1e3, 10e3, 100e3, 1e6, 10e6, 100e6)
     dco_pn_levels_dbchz: tuple = (-65, -95, -110, -120, -135, -148)
 
+    # ----- Optional realistic DCO (coarse + dithered fine) -----
+    use_realistic_dco: bool = False
+    realistic_dco_coarse_lsb_hz: float = 1e6
+    realistic_dco_fine_lsb_hz: float = 1e3
+    realistic_dco_dither_bits: int = 16
+
     # ----- Reference spur (optional) -----
-    # A deterministic sinusoidal component added to the reference edge
-    # time. With nonzero amplitude this models supply / substrate
-    # leakage of f_ref that periodically shifts the reference edge.
-    ref_spur_amp_s: float = 0.0          # peak amplitude [s]
-    ref_spur_freq_hz: float = 0.0        # offset frequency [Hz]
+    ref_spur_amp_s: float = 0.0
+    ref_spur_freq_hz: float = 0.0
 
     # ----- Simulation control -----
     n_cycles: int = 200_000

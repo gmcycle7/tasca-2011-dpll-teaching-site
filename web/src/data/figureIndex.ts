@@ -229,6 +229,28 @@ export const figureIndex: FigureMeta[] = [
     status: "ready",
   },
   {
+    slug: "ext-kbb-tracker",
+    kind: "extension",
+    shortLabel: "K_bb tracker",
+    title: "K_bb adaptive tracking — making loop BW robust to PVT",
+    oneLiner:
+      "Estimate σ at the BBPD input online, recover K_bb, scale Kp/Ki to hold loop BW constant.",
+    simScript: "scripts/run_kbb_tracker.py",
+    plotPath: "/figures/kbb_tracker.png",
+    status: "ready",
+  },
+  {
+    slug: "ext-allan",
+    kind: "extension",
+    shortLabel: "Allan dev",
+    title: "Allan deviation σ_y(τ) — long-term stability",
+    oneLiner:
+      "Time-domain stability metric from the same closed-loop trace as L(f).",
+    simScript: "scripts/run_allan_deviation.py",
+    plotPath: "/figures/allan.png",
+    status: "ready",
+  },
+  {
     slug: "ext-integrated",
     kind: "extension",
     shortLabel: "Interactive",
@@ -259,6 +281,8 @@ export const readingOrder: string[] = [
   "fig-frac-spur",
   "fig-lms",
   "ext-deepviz",
+  "ext-kbb-tracker",
+  "ext-allan",
   "ext-ntf",
   "ext-multibit-tdc",
   "ext-sensitivity",

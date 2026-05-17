@@ -195,6 +195,143 @@ const sections: Section[] = [
     ),
     script: "scripts/run_ref_spur_demo.py",
   },
+  {
+    id: "dco-pn-physics",
+    block: "DCO",
+    title: "DCO phase-noise physics template (1/f³ + 1/f² + white)",
+    src: "/figures/dco_pn_physics.png",
+    caption:
+      "Top: three template anchors at L(1 MHz) = −105/−115/−125 dBc/Hz with the flicker corner at 100 kHz. Middle: regional decomposition into 1/f³ (flicker), 1/f² (thermal), and white floor. Bottom: closed-loop L(f) — DCO PN only matters above the loop bandwidth.",
+    takeaway: (
+      <>
+        A meaningful DCO template has three physics-anchored knobs (L at
+        1 MHz, flicker corner, white floor) instead of six arbitrary
+        corner-point numbers. Inside the loop bandwidth, the loop
+        attenuates DCO PN regardless of which knob you push.
+      </>
+    ),
+    script: "scripts/run_dco_pn_physics.py",
+  },
+  {
+    id: "loop-pole",
+    block: "Loop",
+    title: "Loop-filter smoothing pole",
+    src: "/figures/loop_filter_pole.png",
+    caption:
+      "BBPD-input error trace vs. four pole-alpha values, tail RMS vs. alpha (log-log), and closed-loop L(f) overlay.",
+    takeaway: (
+      <>
+        A 1-pole IIR on the integrator branch softens the
+        BBPD-driven hunting at high offset frequencies. In our regime
+        the tail RMS is already near the noise floor so changing alpha
+        has tiny effect on the integrated number — but you can see the
+        peaking near 1–10 MHz disappear.
+      </>
+    ),
+    script: "scripts/run_loop_filter_pole.py",
+  },
+  {
+    id: "multibit-bbpd",
+    block: "BBPD",
+    title: "Multi-bit BBPD — does adding bits help?",
+    src: "/figures/multibit_bbpd.png",
+    caption:
+      "Per-cycle detector output histogram (1/2/3-bit), tail BBPD-input RMS vs. bit count, and closed-loop L(f) overlay. Kp/Ki are rescaled so each architecture has comparable small-signal loop gain.",
+    takeaway: (
+      <>
+        For a well-calibrated DTC the comparator residue is already
+        sub-picosecond, so giving the detector more bits buys very
+        little in-band performance. The 1-bit BBPD is the right
+        engineering trade — much cheaper hardware, same noise.
+      </>
+    ),
+    script: "scripts/run_multibit_bbpd.py",
+  },
+  {
+    id: "inl-table",
+    block: "DTC",
+    title: "DTC INL: sinusoidal model vs. arbitrary lookup table",
+    src: "/figures/dtc_inl_table.png",
+    caption:
+      "Top: INL profile shapes — sinusoid at 4 ripples/full-scale vs. a synthetic 32-bin lookup table. Middle: closed-loop L(f) for ideal / sinusoid / table. Bottom: worst predicted-comb spur for each.",
+    takeaway: (
+      <>
+        Real DTC INL is rarely a clean sinusoid. The lookup-table
+        path lets you drop a measured INL profile into the simulator
+        and see exactly which comb harmonics get amplified.
+      </>
+    ),
+    script: "scripts/run_dtc_inl_table.py",
+  },
+  {
+    id: "realistic-dco-closed",
+    block: "DCO",
+    title: "Realistic two-band DCO in the closed loop",
+    src: "/figures/realistic_dco_closed.png",
+    caption:
+      "Top: per-cycle DCO frequency trace (steady state) — realistic DCO shows ± fine-LSB hopping. Middle: cycle-averaged frequency converging to target. Bottom: closed-loop L(f) — linear vs. realistic DCO.",
+    takeaway: (
+      <>
+        Replacing the linear DCO with the coarse-bank + dithered-fine
+        model lifts the per-cycle frequency noise but the loop&apos;s
+        high-pass NTF eats most of that energy. Steady-state spectrum
+        is essentially unchanged — the architecture wins again.
+      </>
+    ),
+    script: "scripts/run_realistic_dco_closed.py",
+  },
+  {
+    id: "lms-multi",
+    block: "Calibration",
+    title: "Stacked LMS calibration — gain + offset",
+    src: "/figures/lms_multi.png",
+    caption:
+      "Top: g_hat trajectories for both single-learner cases. Middle: offset_hat learning a 4 ps static DTC offset. Bottom: tail BBPD-input RMS for no-LMS / gain-only / gain+offset.",
+    takeaway: (
+      <>
+        Two LMS loops run in parallel without fighting each other.
+        Each looks at a different correlation (gain learner ←
+        s_bbpd · e_dsm; offset learner ← mean of s_bbpd), so they
+        converge to different physical impairments independently.
+      </>
+    ),
+    script: "scripts/run_lms_multi_explorer.py",
+  },
+  {
+    id: "kbb-tracker",
+    block: "Calibration",
+    title: "K_bb adaptive tracking via rolling σ estimate",
+    src: "/figures/kbb_tracker.png",
+    caption:
+      "Top: rolling σ at the BBPD input and the implied K_bb = √(2/π)/σ. Bottom: a switching-density alternative estimator (fraction of sign flips in a rolling window).",
+    takeaway: (
+      <>
+        The BBPD&apos;s effective gain depends on its input dither.
+        Running a slow LMS that estimates σ lets a downstream loop
+        scale Kp/Ki to keep the closed-loop bandwidth on target as
+        PVT drifts.
+      </>
+    ),
+    script: "scripts/run_kbb_tracker.py",
+  },
+  {
+    id: "allan",
+    block: "Metrics",
+    title: "Allan deviation σ_y(τ) — long-term stability",
+    src: "/figures/allan.png",
+    caption:
+      "Overlapping ADEV of the closed-loop divider edges; theoretical slope guides for white / flicker / random-walk FM; and ADEV for three loop bandwidths showing where the dominant noise type shifts with τ.",
+    takeaway: (
+      <>
+        Allan deviation is the long-term stability metric ADCs and
+        timing-critical receivers actually care about. The slope of
+        σ_y(τ) tells you what noise type dominates at each averaging
+        time — and the loop bandwidth controls where the transitions
+        happen.
+      </>
+    ),
+    script: "scripts/run_allan_deviation.py",
+  },
 ];
 
 

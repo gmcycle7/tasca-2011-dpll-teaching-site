@@ -14,6 +14,28 @@ const kindBadge: Record<FigureMeta["kind"], string> = {
   extension: "bg-rose-100 text-rose-700 ring-rose-200",
 };
 
+// Map a slug to the source page file name (e.g. "fig-architecture" ->
+// "FigArchitecture"; "mod-pll-params" -> "ModPllParams") so the
+// "edit on GitHub" link points to the right TSX file.
+function pageFileFromSlug(slug: string): string {
+  const overrides: Record<string, string> = {
+    "big-picture": "BigPicture",
+    "glossary": "Glossary",
+  };
+  if (overrides[slug]) return overrides[slug];
+  return slug
+    .split("-")
+    .map((part, idx) => {
+      const head = (
+        idx === 0
+          ? { fig: "Fig", mod: "Mod", ext: "Ext" }[part] ?? part.charAt(0).toUpperCase() + part.slice(1)
+          : part.charAt(0).toUpperCase() + part.slice(1)
+      );
+      return head;
+    })
+    .join("");
+}
+
 export default function PageLayout({ meta, children }: Props) {
   const stepIdx = readingOrder.indexOf(meta.slug);
   const stepTotal = readingOrder.length;
@@ -43,15 +65,25 @@ export default function PageLayout({ meta, children }: Props) {
 
       <div className="space-y-6">{children}</div>
 
-      <div className="flex items-center justify-between border-t border-slate-200 pt-6 text-xs text-slate-500">
-        <Link to="/" className="!text-slate-500 hover:!text-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-6 text-xs text-slate-500 dark:border-slate-800">
+        <Link to="/" className="!text-slate-500 hover:!text-slate-800 dark:hover:!text-slate-200">
           ← back to index
         </Link>
-        {meta.simScript && (
-          <span>
-            Script: <code>{meta.simScript}</code>
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {meta.simScript && (
+            <span>
+              Script: <code>{meta.simScript}</code>
+            </span>
+          )}
+          <a
+            href={`https://github.com/gmcycle7/tasca-2011-dpll-teaching-site/blob/main/web/src/pages/${pageFileFromSlug(meta.slug)}.tsx`}
+            target="_blank"
+            rel="noreferrer"
+            className="!text-slate-500 hover:!text-slate-800 dark:hover:!text-slate-200"
+          >
+            edit this page on GitHub ↗
+          </a>
+        </div>
       </div>
 
       <NextPrev slug={meta.slug} />

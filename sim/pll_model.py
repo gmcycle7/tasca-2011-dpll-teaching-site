@@ -3,19 +3,20 @@
 One simulation step = one reference cycle = one feedback divider cycle.
 We track absolute time of every reference and divider edge in SECONDS.
 
-State per step k:
+State per step k (all stored in `SimResults`):
     t_ref[k]      reference edge time (with optional reference jitter)
     m[k]          DSM integer dither -> divider modulus D = N_int + m
     e_dsm[k]      cumulative DSM residue (fractional cycles); this is
                   what an ideal DTC would cancel
-    t_div[k]      divider edge time before the DTC (advances by
-                  D/f_DCO + DCO-phase-noise contribution)
+    t_div[k]      divider edge time before the DTC
     tau_dtc[k]    DTC delay applied to that edge
     t_div_eff[k]  divider edge time after DTC delay (compared to ref)
     e_bbpd[k]     t_div_eff - t_ref           (the BBPD's input)
-    s[k]          BBPD output (+/-1)
+    s[k]          BBPD output (integer code; ±1 for 1-bit)
     u[k]          DCO tuning word from the digital loop filter
-    f_dco[k]      DCO frequency = f_dco_nominal + K_dco*u
+    f_dco[k]      DCO frequency
+    g_hat[k]      LMS-learned DTC gain coefficient
+    offset_hat[k] LMS-learned DTC offset (digital, in seconds)
 
 Sign convention recap:
     * e_bbpd > 0   feedback edge is LATE        -> BBPD outputs +1
@@ -23,6 +24,8 @@ Sign convention recap:
     * Faster DCO   shortens future divider periods -> e_bbpd decreases
 """
 from dataclasses import dataclass
+from typing import Optional
+
 import numpy as np
 
 from .pll_params import PLLParams
@@ -33,6 +36,7 @@ from .loop_filter import DigitalPI
 from .dco import DCO
 from .fractional_divider import FractionalDivider
 from .phase_noise import generate_pn_sequence
+from .realistic_dco import RealisticDCO
 
 
 @dataclass
@@ -48,20 +52,14 @@ class SimResults:
     tau_dtc: np.ndarray
     f_dco: np.ndarray
     g_hat: np.ndarray
+    offset_hat: np.ndarray
+    inl_table_hat: Optional[np.ndarray]
     params: PLLParams
     alpha: float
     lms_enabled: bool
 
 
 def excess_phase_at_dco(res: SimResults, trim_settling: float = 0.5) -> np.ndarray:
-    """Return DCO-equivalent excess phase (rad) sampled at f_ref.
-
-    delta[k] = t_div_eff[k] - k*T_ref          (time error at divider out)
-    phi_dco_excess[k] = 2*pi*f_dco_nominal*delta[k]
-
-    DC offset (mean of the trimmed steady-state tail) is removed before
-    PSD estimation. `trim_settling` is the fraction of the head to drop.
-    """
     p = res.params
     n = len(res.t_div_eff)
     delta = res.t_div_eff - (np.arange(n) + 1) * p.T_ref
@@ -69,6 +67,27 @@ def excess_phase_at_dco(res: SimResults, trim_settling: float = 0.5) -> np.ndarr
     delta = delta[i0:]
     delta = delta - np.mean(delta)
     return 2.0 * np.pi * p.f_dco_nominal * delta
+
+
+def _build_ref_jitter(params: PLLParams, n: int, T_ref: float,
+                     enable_ref_noise: bool, rng) -> np.ndarray:
+    if not enable_ref_noise:
+        return np.zeros(n)
+    # Colored ref PN if template is set
+    if (params.ref_pn_freqs_hz is not None
+            and params.ref_pn_levels_dbchz is not None):
+        phi_ref = generate_pn_sequence(n, params.f_ref,
+                                       params.ref_pn_freqs_hz,
+                                       params.ref_pn_levels_dbchz, rng)
+        ref_jitter = phi_ref / (2.0 * np.pi * params.f_ref)
+    else:
+        ref_jitter = (rng.normal(0.0, params.ref_jitter_rms_s, n)
+                      if params.ref_jitter_rms_s > 0 else np.zeros(n))
+    if params.ref_spur_amp_s > 0 and params.ref_spur_freq_hz > 0:
+        k_idx = np.arange(n)
+        ref_jitter = ref_jitter + params.ref_spur_amp_s * np.sin(
+            2.0 * np.pi * params.ref_spur_freq_hz * k_idx * T_ref)
+    return ref_jitter
 
 
 def run_simulation(params: PLLParams,
@@ -80,11 +99,11 @@ def run_simulation(params: PLLParams,
                    u_init: float = None) -> SimResults:
     """Run one closed-loop time-domain simulation.
 
-    If `enable_lms` is True, an LMS update is applied to the DTC gain
-    coefficient g_hat per cycle:
-        g_hat <- g_hat - mu * s_bbpd[k] * e_dsm[k]
-    g_hat scales the DSM residue *before* it is passed to the DTC, so
-    the steady-state value converges to 1 / (1 + dtc_gain_err).
+    Calibration controlled by PLLParams (in addition to the master
+    enable_lms switch above):
+        * lms_mu        gain coefficient  (active iff enable_lms)
+        * lms_mu_offset offset learner    (active iff > 0 and enable_lms)
+        * lms_mu_inl    INL-table learner (active iff > 0 and enable_lms)
     """
     if alpha is None:
         alpha = params.alpha
@@ -95,18 +114,7 @@ def run_simulation(params: PLLParams,
     T_ref = params.T_ref
 
     # ----- Pre-generated noise -----
-    if enable_ref_noise and params.ref_jitter_rms_s > 0:
-        ref_jitter = rng.normal(0.0, params.ref_jitter_rms_s, n)
-    else:
-        ref_jitter = np.zeros(n)
-
-    # Optional deterministic reference spur (periodic supply / substrate
-    # leakage of f_ref shifting the reference edge time).
-    if params.ref_spur_amp_s > 0 and params.ref_spur_freq_hz > 0:
-        k_idx = np.arange(n)
-        ref_jitter = ref_jitter + params.ref_spur_amp_s * np.sin(
-            2.0 * np.pi * params.ref_spur_freq_hz * k_idx * T_ref)
-
+    ref_jitter = _build_ref_jitter(params, n, T_ref, enable_ref_noise, rng)
     if enable_dco_pn:
         phi_dco_excess = generate_pn_sequence(
             n, params.f_ref,
@@ -119,17 +127,28 @@ def run_simulation(params: PLLParams,
                quant_levels=params.dsm_quant_levels,
                seed=params.rng_seed + 1)
     bbpd = BBPD(meta_noise_rms_s=params.bbpd_meta_noise_rms_s,
+                n_bits=params.bbpd_bits,
+                full_scale_s=params.bbpd_full_scale_s,
                 rng=np.random.default_rng(params.rng_seed + 2))
     lpf = DigitalPI(Kp=params.Kp, Ki=params.Ki,
-                    u_init=u_init if u_init is not None else params.u_init)
-    dco = DCO(f_dco_nominal=params.f_dco_nominal, K_dco=params.K_dco)
+                    u_init=u_init if u_init is not None else params.u_init,
+                    pole_alpha=params.loop_filter_pole_alpha)
+    if params.use_realistic_dco:
+        dco = RealisticDCO(f_nominal=params.f_dco_nominal,
+                           coarse_lsb_hz=params.realistic_dco_coarse_lsb_hz,
+                           fine_lsb_hz=params.realistic_dco_fine_lsb_hz,
+                           dither_bits=params.realistic_dco_dither_bits,
+                           seed=params.rng_seed + 4)
+    else:
+        dco = DCO(f_dco_nominal=params.f_dco_nominal, K_dco=params.K_dco)
     fdiv = FractionalDivider(N_int=N_int)
     dtc = DTC(gain_err=params.dtc_gain_err,
               offset_s=params.dtc_offset_s,
               quant_lsb_s=params.dtc_quant_lsb_s,
               inl_amp_s=params.dtc_inl_amp_s,
               inl_periods=params.dtc_inl_periods,
-              full_scale_s=T_ref)
+              full_scale_s=T_ref,
+              inl_table_s=params.dtc_inl_table_s)
 
     # ----- Output buffers -----
     t_ref_arr = np.empty(n)
@@ -143,19 +162,22 @@ def run_simulation(params: PLLParams,
     tau_dtc_arr = np.empty(n)
     f_dco_arr = np.empty(n)
     g_hat_arr = np.empty(n)
+    offset_hat_arr = np.empty(n)
 
     # ----- State -----
     t_div_prev = 0.0
     u = lpf.u_init
     inv_2pi_f_dco_nom = 1.0 / (2.0 * np.pi * params.f_dco_nominal)
     g_hat = float(params.lms_g_hat_init)
+    offset_hat = 0.0
     lms_mu = float(params.lms_mu)
+    lms_mu_offset = float(params.lms_mu_offset)
+    lms_mu_inl = float(params.lms_mu_inl)
+    inl_n_bins = int(params.lms_inl_n_bins)
+    inl_table_hat = (np.zeros(inl_n_bins) if lms_mu_inl > 0 else None)
 
     for k in range(n):
-        # 1) Reference edge.
-        #    Both the divider and the reference start aligned at t = 0;
-        #    the FIRST emitted divider edge corresponds to the FIRST
-        #    post-zero reference edge at t = T_ref, so index from 1.
+        # 1) Reference edge
         t_ref_k = (k + 1) * T_ref + ref_jitter[k]
 
         # 2) DSM step (modulus for this cycle + residue used by DTC)
@@ -167,9 +189,20 @@ def run_simulation(params: PLLParams,
         dt_pn = phi_dco_excess[k] * inv_2pi_f_dco_nom
         t_div_k = t_div_prev + D_k / f_dco_k + dt_pn
 
-        # 4) DTC delay. The DSM residue is pre-scaled by the LMS-adapted
-        #    coefficient g_hat; in steady state g_hat -> 1/(1 + gain_err).
-        tau_target = g_hat * e_dsm_k * params.T_dco_nominal if enable_dtc else 0.0
+        # 4) DTC delay. Pre-scale by LMS coefficients.
+        if enable_dtc:
+            tau_target = g_hat * e_dsm_k * params.T_dco_nominal - offset_hat
+            # Optional piecewise INL pre-distortion
+            if inl_table_hat is not None:
+                bin_idx = int(np.clip(
+                    np.floor((tau_target / max(T_ref, 1e-30) + 0.5) * inl_n_bins),
+                    0, inl_n_bins - 1))
+                tau_target = tau_target - inl_table_hat[bin_idx]
+            else:
+                bin_idx = -1
+        else:
+            tau_target = 0.0
+            bin_idx = -1
         tau_dtc_k = float(dtc.apply(tau_target))
         t_div_eff_k = t_div_k + tau_dtc_k
 
@@ -177,10 +210,14 @@ def run_simulation(params: PLLParams,
         e_k = t_div_eff_k - t_ref_k
         s_k = bbpd.decide(e_k)
 
-        # 6) LMS update of DTC gain coefficient (before loop filter so
-        #    g_hat[k] is the value used at step k).
+        # 6) LMS updates
         if enable_lms:
             g_hat = g_hat - lms_mu * s_k * e_dsm_k
+            if lms_mu_offset > 0:
+                offset_hat = offset_hat - lms_mu_offset * s_k * params.T_dco_nominal
+            if inl_table_hat is not None and bin_idx >= 0:
+                inl_table_hat[bin_idx] = (
+                    inl_table_hat[bin_idx] - lms_mu_inl * s_k * params.T_dco_nominal)
 
         # 7) Loop filter -> new DCO control word
         u = lpf.step(s_k)
@@ -197,6 +234,7 @@ def run_simulation(params: PLLParams,
         tau_dtc_arr[k] = tau_dtc_k
         f_dco_arr[k] = f_dco_k
         g_hat_arr[k] = g_hat
+        offset_hat_arr[k] = offset_hat
 
         t_div_prev = t_div_k
 
@@ -204,5 +242,7 @@ def run_simulation(params: PLLParams,
         t_ref=t_ref_arr, t_div=t_div_arr, t_div_eff=t_div_eff_arr,
         e_bbpd=e_bbpd_arr, s_bbpd=s_bbpd_arr, u=u_arr, m=m_arr,
         e_dsm=e_dsm_arr, tau_dtc=tau_dtc_arr, f_dco=f_dco_arr,
-        g_hat=g_hat_arr, params=params, alpha=alpha,
+        g_hat=g_hat_arr, offset_hat=offset_hat_arr,
+        inl_table_hat=inl_table_hat,
+        params=params, alpha=alpha,
         lms_enabled=bool(enable_lms))

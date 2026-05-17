@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { figureIndex, FigureMeta } from "./data/figureIndex";
 import DarkModeToggle from "./components/DarkModeToggle";
+import ReadingProgress from "./components/ReadingProgress";
 
 // Eagerly load the home page — it's small and renders the index
 import Home from "./pages/Home";
@@ -30,6 +31,8 @@ const ModJitterSpurs      = lazy(() => import("./pages/ModJitterSpurs"));
 const ModPllModel         = lazy(() => import("./pages/ModPllModel"));
 
 const ExtDeepViz          = lazy(() => import("./pages/ExtDeepViz"));
+const ExtKbbTracker       = lazy(() => import("./pages/ExtKbbTracker"));
+const ExtAllan            = lazy(() => import("./pages/ExtAllan"));
 const ExtNtf              = lazy(() => import("./pages/ExtNtf"));
 const ExtMultibitTdc      = lazy(() => import("./pages/ExtMultibitTdc"));
 const ExtSensitivity      = lazy(() => import("./pages/ExtSensitivity"));
@@ -57,6 +60,8 @@ const pageComponents: Record<string, React.ComponentType> = {
   "mod-jitter-spurs": ModJitterSpurs,
   "mod-pll-model": ModPllModel,
   "ext-deepviz": ExtDeepViz,
+  "ext-kbb-tracker": ExtKbbTracker,
+  "ext-allan": ExtAllan,
   "ext-ntf": ExtNtf,
   "ext-multibit-tdc": ExtMultibitTdc,
   "ext-sensitivity": ExtSensitivity,
@@ -83,6 +88,7 @@ function PageFallback() {
 export default function App() {
   return (
     <div className="min-h-screen">
+      <ReadingProgress />
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 backdrop-blur
                          dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
