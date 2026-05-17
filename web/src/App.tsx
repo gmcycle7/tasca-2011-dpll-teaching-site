@@ -33,6 +33,7 @@ const ModPllModel         = lazy(() => import("./pages/ModPllModel"));
 const ExtDeepViz          = lazy(() => import("./pages/ExtDeepViz"));
 const ExtKbbTracker       = lazy(() => import("./pages/ExtKbbTracker"));
 const ExtAllan            = lazy(() => import("./pages/ExtAllan"));
+const ExtPvt              = lazy(() => import("./pages/ExtPvt"));
 const ExtNtf              = lazy(() => import("./pages/ExtNtf"));
 const ExtMultibitTdc      = lazy(() => import("./pages/ExtMultibitTdc"));
 const ExtSensitivity      = lazy(() => import("./pages/ExtSensitivity"));
@@ -62,6 +63,7 @@ const pageComponents: Record<string, React.ComponentType> = {
   "ext-deepviz": ExtDeepViz,
   "ext-kbb-tracker": ExtKbbTracker,
   "ext-allan": ExtAllan,
+  "ext-pvt-monte-carlo": ExtPvt,
   "ext-ntf": ExtNtf,
   "ext-multibit-tdc": ExtMultibitTdc,
   "ext-sensitivity": ExtSensitivity,

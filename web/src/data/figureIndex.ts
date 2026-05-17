@@ -251,6 +251,17 @@ export const figureIndex: FigureMeta[] = [
     status: "ready",
   },
   {
+    slug: "ext-pvt-monte-carlo",
+    kind: "extension",
+    shortLabel: "PVT MC",
+    title: "PVT Monte Carlo — yield across process variation",
+    oneLiner:
+      "30 runs with perturbed K_dco, DCO PN floor, DTC gain/offset, BBPD meta. Histograms + yield curves.",
+    simScript: "scripts/run_pvt_monte_carlo.py",
+    plotPath: "/figures/pvt_monte_carlo.png",
+    status: "ready",
+  },
+  {
     slug: "ext-integrated",
     kind: "extension",
     shortLabel: "Interactive",
@@ -283,6 +294,7 @@ export const readingOrder: string[] = [
   "ext-deepviz",
   "ext-kbb-tracker",
   "ext-allan",
+  "ext-pvt-monte-carlo",
   "ext-ntf",
   "ext-multibit-tdc",
   "ext-sensitivity",

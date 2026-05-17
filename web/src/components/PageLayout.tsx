@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { FigureMeta, readingOrder } from "../data/figureIndex";
 import NextPrev from "./NextPrev";
+import StickyToc from "./StickyToc";
 
 type Props = {
   meta: FigureMeta;
@@ -42,6 +43,7 @@ export default function PageLayout({ meta, children }: Props) {
 
   return (
     <article className="space-y-6">
+      <StickyToc key={meta.slug} />
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <span

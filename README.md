@@ -1,5 +1,8 @@
 # Tasca 2011 DPLL — Behavioral Simulator + Teaching Site
 
+[![Tests](https://github.com/gmcycle7/tasca-2011-dpll-teaching-site/actions/workflows/test.yml/badge.svg)](https://github.com/gmcycle7/tasca-2011-dpll-teaching-site/actions/workflows/test.yml)
+[![Pages](https://github.com/gmcycle7/tasca-2011-dpll-teaching-site/actions/workflows/deploy.yml/badge.svg)](https://github.com/gmcycle7/tasca-2011-dpll-teaching-site/actions/workflows/deploy.yml)
+
 A behavioral model and a guided-tour teaching website for the
 fractional-N digital PLL architecture described in:
 
