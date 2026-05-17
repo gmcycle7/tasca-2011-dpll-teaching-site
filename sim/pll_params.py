@@ -87,6 +87,15 @@ class PLLParams:
     ref_spur_amp_s: float = 0.0
     ref_spur_freq_hz: float = 0.0
 
+    # ----- K_bb adaptive scaling (loop-BW invariance) -----
+    # An online EMA estimate of sigma at BBPD input is used to scale
+    # the BBPD output before it hits the loop filter; this keeps the
+    # K_bb*Kp product (and hence the closed-loop bandwidth) constant
+    # as the in-loop dither drifts with PVT.
+    enable_kbb_track: bool = False
+    kbb_track_alpha: float = 1e-3        # EMA coefficient
+    kbb_target_sigma_s: float = 5e-13    # target sigma at BBPD input
+
     # ----- Simulation control -----
     n_cycles: int = 200_000
     rng_seed: int = 12345

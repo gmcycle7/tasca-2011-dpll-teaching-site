@@ -54,6 +54,8 @@ class SimResults:
     g_hat: np.ndarray
     offset_hat: np.ndarray
     inl_table_hat: Optional[np.ndarray]
+    kbb_scale: np.ndarray
+    sigma_est: np.ndarray
     params: PLLParams
     alpha: float
     lms_enabled: bool
@@ -142,12 +144,17 @@ def run_simulation(params: PLLParams,
     else:
         dco = DCO(f_dco_nominal=params.f_dco_nominal, K_dco=params.K_dco)
     fdiv = FractionalDivider(N_int=N_int)
+    # When an INL lookup table is in use, the DTC's full-scale should
+    # match the typical tau_target swing (≈ ±2 T_DCO for MASH-1-1-1)
+    # so the bins are evenly visited. Otherwise it stays at T_ref.
+    dtc_full_scale = (params.dtc_inl_table_full_scale_s
+                      if params.dtc_inl_table_s is not None else T_ref)
     dtc = DTC(gain_err=params.dtc_gain_err,
               offset_s=params.dtc_offset_s,
               quant_lsb_s=params.dtc_quant_lsb_s,
               inl_amp_s=params.dtc_inl_amp_s,
               inl_periods=params.dtc_inl_periods,
-              full_scale_s=T_ref,
+              full_scale_s=dtc_full_scale,
               inl_table_s=params.dtc_inl_table_s)
 
     # ----- Output buffers -----
@@ -163,6 +170,8 @@ def run_simulation(params: PLLParams,
     f_dco_arr = np.empty(n)
     g_hat_arr = np.empty(n)
     offset_hat_arr = np.empty(n)
+    kbb_scale_arr = np.empty(n)
+    sigma_est_arr = np.empty(n)
 
     # ----- State -----
     t_div_prev = 0.0
@@ -175,6 +184,10 @@ def run_simulation(params: PLLParams,
     lms_mu_inl = float(params.lms_mu_inl)
     inl_n_bins = int(params.lms_inl_n_bins)
     inl_table_hat = (np.zeros(inl_n_bins) if lms_mu_inl > 0 else None)
+    # K_bb adaptive scaling state
+    kbb_alpha = float(params.kbb_track_alpha)
+    kbb_target_sigma2 = float(params.kbb_target_sigma_s) ** 2
+    sigma2_est = float(params.kbb_target_sigma_s) ** 2     # warm start
 
     for k in range(n):
         # 1) Reference edge
@@ -192,11 +205,14 @@ def run_simulation(params: PLLParams,
         # 4) DTC delay. Pre-scale by LMS coefficients.
         if enable_dtc:
             tau_target = g_hat * e_dsm_k * params.T_dco_nominal - offset_hat
-            # Optional piecewise INL pre-distortion
+            # Optional piecewise INL pre-distortion (centered indexing
+            # to MATCH dtc.py's INL-table indexing exactly).
             if inl_table_hat is not None:
-                bin_idx = int(np.clip(
-                    np.floor((tau_target / max(T_ref, 1e-30) + 0.5) * inl_n_bins),
-                    0, inl_n_bins - 1))
+                half_fs = params.dtc_inl_table_full_scale_s / 2.0
+                norm = (tau_target + half_fs) / max(
+                    params.dtc_inl_table_full_scale_s, 1e-30)
+                bin_idx = int(np.clip(np.floor(norm * inl_n_bins),
+                                      0, inl_n_bins - 1))
                 tau_target = tau_target - inl_table_hat[bin_idx]
             else:
                 bin_idx = -1
@@ -219,8 +235,19 @@ def run_simulation(params: PLLParams,
                 inl_table_hat[bin_idx] = (
                     inl_table_hat[bin_idx] - lms_mu_inl * s_k * params.T_dco_nominal)
 
+        # K_bb adaptive scaling: update sigma estimate from |e_bbpd| and
+        # rescale BBPD output so that K_bb*Kp (i.e. effective loop gain)
+        # is invariant to drifts in the BBPD input dither.
+        sigma2_est = (1.0 - kbb_alpha) * sigma2_est + kbb_alpha * (e_k * e_k)
+        if params.enable_kbb_track:
+            kbb_scale = float(np.sqrt(sigma2_est / max(kbb_target_sigma2, 1e-30)))
+            s_k_lpf = s_k * kbb_scale
+        else:
+            kbb_scale = 1.0
+            s_k_lpf = s_k
+
         # 7) Loop filter -> new DCO control word
-        u = lpf.step(s_k)
+        u = lpf.step(s_k_lpf)
 
         # Store
         t_ref_arr[k] = t_ref_k
@@ -235,6 +262,8 @@ def run_simulation(params: PLLParams,
         f_dco_arr[k] = f_dco_k
         g_hat_arr[k] = g_hat
         offset_hat_arr[k] = offset_hat
+        kbb_scale_arr[k] = kbb_scale
+        sigma_est_arr[k] = float(np.sqrt(sigma2_est))
 
         t_div_prev = t_div_k
 
@@ -244,5 +273,6 @@ def run_simulation(params: PLLParams,
         e_dsm=e_dsm_arr, tau_dtc=tau_dtc_arr, f_dco=f_dco_arr,
         g_hat=g_hat_arr, offset_hat=offset_hat_arr,
         inl_table_hat=inl_table_hat,
+        kbb_scale=kbb_scale_arr, sigma_est=sigma_est_arr,
         params=params, alpha=alpha,
         lms_enabled=bool(enable_lms))

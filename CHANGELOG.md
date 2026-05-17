@@ -3,6 +3,43 @@
 All notable changes to the Tasca 2011 DPLL behavioral simulator and
 teaching site, newest first.
 
+## [0.4.0] — P3 tail-up: LMS INL working, K_bb closed-loop integrated
+
+### Simulator
+- DTC INL lookup table now uses centered indexing
+  (`norm = (τ + FS/2)/FS`) so both the DTC and the LMS learner hit
+  the same bins for a typical MASH-1-1-1 residue range.
+- pll_model auto-selects DTC `full_scale_s` based on whether an INL
+  table is in use (4·T_DCO for table mode, T_ref otherwise) so the
+  natural τ swing exercises all bins.
+- K_bb adaptive scaling integrated: `enable_kbb_track`,
+  `kbb_track_alpha`, `kbb_target_sigma_s` parameters added; an EMA of
+  e_bbpd² estimates σ at the BBPD input, and the BBPD output is
+  multiplied by σ/σ_target before the loop filter. Keeps K_bb·Kp
+  product (and hence loop BW) invariant to PVT drift.
+- `SimResults` now exposes `kbb_scale` and `sigma_est` per-cycle
+  traces in addition to all the previous state.
+
+### Scripts and figures
+- `scripts/run_lms_multi_explorer.py` re-enabled with 4 cases
+  (no LMS / gain only / + offset / + INL). With mu_inl = 2e-7 the
+  INL learner converges to within ~2 ps tail of the gain+offset
+  case; further tightening needs a slower mu schedule.
+- `scripts/run_kbb_closed_loop.py` new: sweep DCO PN floor ±10 dB,
+  contrast no-track vs tracked σ at BBPD input + closed-loop L(f).
+
+### Web site
+- ExtDeepViz expanded from 18 to 19 sections (new K_bb closed-loop
+  panel).
+
+### Known caveats (still)
+- INL learner tail RMS is slightly *worse* than gain+offset for our
+  default scenario because truth INL is at the noise floor; the
+  learner adds marginal residual instead of removing it. Visible in
+  larger-INL scenarios.
+- Numba JIT not landed (would require installing the dep and
+  trading some sim-loop flexibility for ~40× speed; deferred).
+
 ## [0.3.0] — P1 + P2 build-out
 
 ### Simulator

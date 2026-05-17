@@ -228,10 +228,11 @@ def test_loop_filter_pole_alpha_smooths_integral_branch():
 
 def test_dtc_inl_table_overrides_sinusoid():
     table = np.array([1e-12, -2e-12, 3e-12, -1e-12])
+    # Centered indexing: tau spans [-FS/2, +FS/2] → bins [0..n-1]
     d = DTC(inl_amp_s=999e-12, inl_periods=2,           # would scream if used
             full_scale_s=4e-9, inl_table_s=table)
-    # tau_target spanning the full scale (4 ns) should hit each bin
-    taus = np.linspace(0.0, 4e-9, 4, endpoint=False)
+    # tau_target spanning [-FS/2, +FS/2] should hit each bin in order
+    taus = np.linspace(-2e-9, 2e-9, 4, endpoint=False)
     expected_inl = table
     actual = np.array([d.apply(t) - t for t in taus])
     np.testing.assert_allclose(actual, expected_inl, atol=1e-15)

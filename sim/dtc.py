@@ -37,10 +37,11 @@ class DTC:
     def _inl_correction(self, tau_target):
         if self.inl_table_s is not None and self.inl_table_s.size > 0:
             n = self.inl_table_s.size
-            # Map tau_target [0, full_scale_s] to [0, n)
-            idx = np.clip(
-                np.floor(np.asarray(tau_target) / self.full_scale_s * n).astype(int),
-                0, n - 1)
+            # Centered mapping: tau_target spans [-FS/2, +FS/2] over bins [0, n).
+            tau = np.asarray(tau_target, dtype=float)
+            half = self.full_scale_s / 2.0
+            norm = (tau + half) / max(self.full_scale_s, 1e-30)
+            idx = np.clip(np.floor(norm * n).astype(int), 0, n - 1)
             return self.inl_table_s[idx]
         if self.inl_amp_s > 0 and self.inl_periods > 0:
             phase = 2.0 * np.pi * self.inl_periods * (

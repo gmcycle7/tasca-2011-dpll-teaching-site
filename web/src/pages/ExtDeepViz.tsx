@@ -332,6 +332,25 @@ const sections: Section[] = [
     ),
     script: "scripts/run_allan_deviation.py",
   },
+  {
+    id: "kbb-closed",
+    block: "Calibration",
+    title: "K_bb closed-loop tracker — loop BW invariance",
+    src: "/figures/kbb_closed_loop.png",
+    caption:
+      "Sweep DCO PN floor ±10 dB. Top: tail σ at BBPD input — without tracking it grows with PN; with tracking it stays near the target. Middle: kbb_scale converges to σ/σ_target. Bottom: closed-loop L(f) for ±10 dB shifts; tracked curves overlap more cleanly.",
+    takeaway: (
+      <>
+        With an EMA estimate of σ at the BBPD input, multiplying the
+        BBPD output by σ/σ_target before the loop filter keeps the
+        K_bb·Kp product (and the loop bandwidth) approximately
+        invariant under PVT drift. The price is a one-line addition to
+        the main simulator loop — about as cheap as adaptive
+        compensation gets.
+      </>
+    ),
+    script: "scripts/run_kbb_closed_loop.py",
+  },
 ];
 
 

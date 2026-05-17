@@ -1,13 +1,14 @@
-"""LMS multi-coefficient calibration: gain + offset.
+"""LMS multi-coefficient calibration: gain + offset + INL piecewise.
 
-Three panels:
-  1) g_hat trajectory — gain learner alone converges to 1/(1+gain_err).
-  2) offset_hat trajectory — offset learner alone matches dtc_offset_s.
-  3) Tail BBPD-input RMS for: no LMS / gain only / gain + offset.
+Four panels:
+  1) g_hat trajectory across all calibrated cases.
+  2) offset_hat trajectory.
+  3) Per-bin INL learned vs. truth.
+  4) Tail BBPD-input RMS for: no LMS / gain only / + offset / + INL.
 
-(INL-table learner is a follow-up: the DTC's lookup-table indexing
-only exercises a narrow code window for our default alpha, so per-bin
-learning needs an indexing-scheme refactor — tracked in CHANGELOG.)
+The DTC's INL lookup table and the LMS learner use the SAME centered
+bin index now (norm = (tau + FS/2)/FS), with FS set to 4·T_DCO so the
+±2-cycle MASH-1-1-1 residue spans the full table.
 
 Saves:
     results/data/lms_multi.csv
@@ -28,17 +29,30 @@ from sim.pll_model import run_simulation
 
 
 def main() -> None:
+    n_bins = 16
+    rng = np.random.default_rng(3)
+    inl_truth = (1.2e-12 * np.sin(2 * np.pi * 2.0 * np.arange(n_bins) / n_bins)
+                 + rng.normal(0, 0.3e-12, n_bins))
+
     base = PLLParams(n_cycles=200_000,
                      dtc_gain_err=0.10,
                      dtc_offset_s=4e-12,
-                     lms_mu=2e-4)
+                     dtc_inl_table_s=inl_truth,
+                     dtc_inl_table_full_scale_s=4.0 * (1.0 / 3.605e9),
+                     lms_mu=2e-4,
+                     lms_inl_n_bins=n_bins)
 
     cases = {
-        "no LMS":        dataclasses.replace(base, lms_mu_offset=0.0),
-        "gain only":     dataclasses.replace(base, lms_mu_offset=0.0),
-        "gain + offset": dataclasses.replace(base, lms_mu_offset=3e-4),
+        "no LMS":              dataclasses.replace(base, lms_mu_offset=0.0,
+                                                   lms_mu_inl=0.0),
+        "gain only":           dataclasses.replace(base, lms_mu_offset=0.0,
+                                                   lms_mu_inl=0.0),
+        "gain + offset":       dataclasses.replace(base, lms_mu_offset=3e-4,
+                                                   lms_mu_inl=0.0),
+        "gain + offset + INL": dataclasses.replace(base, lms_mu_offset=3e-4,
+                                                   lms_mu_inl=2e-7),
     }
-    enable_lms = {"no LMS": False, "gain only": True, "gain + offset": True}
+    enable_lms = {n: n != "no LMS" for n in cases}
     results = {
         name: run_simulation(p, enable_dtc=True,
                              enable_dco_pn=True, enable_ref_noise=True,
@@ -46,11 +60,11 @@ def main() -> None:
         for name, p in cases.items()
     }
 
-    fig, axes = plt.subplots(3, 1, figsize=(10, 11))
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
     t_us = np.arange(base.n_cycles) * base.T_ref * 1e6
 
     # ---------- Panel 1: g_hat trajectory ----------
-    ax = axes[0]
+    ax = axes[0, 0]
     for name, res in results.items():
         if name == "no LMS":
             continue
@@ -60,10 +74,10 @@ def main() -> None:
     ax.set_ylabel("g_hat")
     ax.set_title("Gain coefficient g_hat")
     ax.grid(True, alpha=0.4)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=8)
 
     # ---------- Panel 2: offset_hat trajectory ----------
-    ax = axes[1]
+    ax = axes[0, 1]
     for name, res in results.items():
         if name in ("no LMS", "gain only"):
             continue
@@ -73,18 +87,34 @@ def main() -> None:
     ax.set_ylabel("offset_hat [ps]")
     ax.set_title("Offset coefficient offset_hat")
     ax.grid(True, alpha=0.4)
+    ax.legend(fontsize=8)
+
+    # ---------- Panel 3: learned INL vs truth ----------
+    ax = axes[1, 0]
+    res_inl = results["gain + offset + INL"]
+    bins = np.arange(n_bins)
+    ax.step(bins, inl_truth * 1e12, where="mid", color="C2",
+            lw=1.2, label="truth")
+    if res_inl.inl_table_hat is not None:
+        ax.step(bins, res_inl.inl_table_hat * 1e12, where="mid",
+                color="C3", lw=1.2, label="learned")
+    ax.set_xlabel("INL code bin (centered indexing)")
+    ax.set_ylabel("INL [ps]")
+    ax.set_title("Per-bin INL: learned vs. truth")
+    ax.grid(True, alpha=0.4)
     ax.legend(fontsize=9)
 
-    # ---------- Panel 3: tail BBPD-input RMS ----------
+    # ---------- Panel 4: tail BBPD-input RMS ----------
     rms_by_case = {}
     for name, res in results.items():
         tail = res.e_bbpd[int(0.85 * base.n_cycles):]
         rms_by_case[name] = tail.std() * 1e12
-    ax = axes[2]
+    ax = axes[1, 1]
     ax.bar(list(rms_by_case.keys()), list(rms_by_case.values()),
-           color=["C7", "C0", "C3"])
+           color=["C7", "C0", "C2", "C3"])
     ax.set_ylabel("tail BBPD-input RMS [ps]")
-    ax.set_title("Stacking LMS learners removes each impairment in turn")
+    ax.set_title("Stacked LMS learners remove each impairment in turn")
+    ax.tick_params(axis="x", rotation=10)
     ax.grid(True, axis="y", alpha=0.4)
     behavioral_caption(ax)
 
