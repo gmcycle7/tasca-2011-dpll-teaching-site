@@ -1,0 +1,2 @@
+import{j as t}from"./vendor-react-DP5dBkVy.js";import{r as s}from"./vendor-math-BD26Pj5n.js";function n({tex:e,caption:r}){return t.jsxs("figure",{className:"my-2 rounded-lg border border-slate-200 bg-slate-50 p-4",children:[t.jsx("div",{className:"overflow-x-auto",children:t.jsx(s.BlockMath,{math:e})}),r&&t.jsx("figcaption",{className:"mt-2 text-center text-xs text-slate-500",children:r})]})}function l({tex:e}){return t.jsx(s.InlineMath,{math:e})}export{n as E,l as I};
+//# sourceMappingURL=EquationBlock-DRbDSHwX.js.map

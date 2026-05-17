@@ -1,0 +1,32 @@
+import{j as e}from"./vendor-react-DP5dBkVy.js";import{M as i,A as s,f as o}from"./index-ooedyYhF.js";import{P as a}from"./PageLayout-D4DbgBvP.js";import{I as t,E as n}from"./EquationBlock-DRbDSHwX.js";import{P as d}from"./ParameterTable-CgYLVfjc.js";import{C as l}from"./CodeBlock-BWBDLxNG.js";import"./vendor-react-dom-D4HI9nvn.js";import"./vendor-router-XjnuBimX.js";import"./vendor-syntax-C8xOikxa.js";import"./vendor-math-BD26Pj5n.js";const c=o.find(r=>r.slug==="fig-architecture"),h=[{symbol:"f_ref",description:"Reference clock",value:"40 MHz",source:"ESTIMATED",notes:"Paper-stated value not in abstract"},{symbol:"f_out",description:"Output carrier range",value:"2.92–4.05 GHz",source:"PAPER"},{symbol:"N_frac",description:"f_out / f_ref",value:"≈ 73 – 101",source:"DERIVED"},{symbol:"process",description:"Technology",value:"65 nm CMOS",source:"PAPER"},{symbol:"DCO step",description:"Frequency resolution",value:"70 Hz",source:"PAPER",notes:"Implies coarse-bank + fine dithered DCO"},{symbol:"P",description:"Total power",value:"4.5 mW",source:"PAPER"}];function y(){return e.jsxs(a,{meta:c,children:[e.jsxs("section",{children:[e.jsx("h2",{className:"!mt-0",children:"What this page is about"}),e.jsx("p",{children:"The architecture takes a low-resolution phase detector (a single flip-flop) and uses a digital-to-time converter on the feedback edge to make the detector see (nearly) zero phase error at lock. Without the DTC, the integer divider modulus jumps every cycle under the delta-sigma modulator's control, generating a large pseudo-random time error that a 1-bit detector cannot resolve. With the DTC, that time error is cancelled in the digital domain before the comparator looks at it."})]}),e.jsxs("section",{children:[e.jsx("h2",{children:"Block diagram"}),e.jsx(i,{})]}),e.jsxs("section",{children:[e.jsx("h2",{children:"What each block does"}),e.jsxs("ul",{className:"ml-6 list-disc space-y-2 text-slate-700",children:[e.jsxs("li",{children:[e.jsx("strong",{children:"Reference"})," — a low-jitter crystal at ",e.jsx(t,{tex:"f_{ref}"}),". Modeled as a deterministic edge schedule plus white jitter."]}),e.jsxs("li",{children:[e.jsx("strong",{children:"MMD (multi-modulus divider)"})," — divides the DCO by ",e.jsx(t,{tex:"N_{int} + m[k]"}),", where ",e.jsx(t,{tex:"m[k]"}),"is an integer dither sequence whose long-term mean equals the fractional part ",e.jsx(t,{tex:"\\alpha"}),"."]}),e.jsxs("li",{children:[e.jsx("strong",{children:"DSM"})," — MASH-1-1-1 (3rd-order), generates",e.jsx(t,{tex:"\\,m[k]"})," and exposes the cumulative residue",e.jsx(t,{tex:"\\;e_{dsm}[k]"})," in fractional DCO cycles."]}),e.jsxs("li",{children:[e.jsx("strong",{children:"DTC"})," — applies a programmable delay",e.jsx(t,{tex:"\\;\\tau_{DTC}=\\hat{g}\\cdot e_{dsm}[k]\\cdot T_{DCO}\\;"}),"to the feedback edge so the BBPD sees only the residual."]}),e.jsxs("li",{children:[e.jsx("strong",{children:"BBPD"})," — outputs ",e.jsx(t,{tex:"\\pm 1"})," per reference cycle based on edge order."]}),e.jsxs("li",{children:[e.jsx("strong",{children:"Digital loop filter"})," — discrete PI; sets loop BW and phase margin."]}),e.jsxs("li",{children:[e.jsx("strong",{children:"DCO"})," — linearised: ",e.jsx(t,{tex:"f_{DCO}=f_0 + K_{DCO}\\cdot u"}),"."]})]})]}),e.jsxs("section",{children:[e.jsx("h2",{children:"Sign-convention summary"}),e.jsx(n,{tex:String.raw`
+            e_{bbpd}[k] \;=\; t_{div,eff}[k] \;-\; t_{ref}[k]
+            \quad\text{(seconds, +ve = feedback late)}
+          `,caption:"Convention used everywhere in sim/ and on this site."}),e.jsxs("p",{children:["With this convention, a positive ",e.jsx(t,{tex:"e_{bbpd}"})," tells the loop the DCO is too slow, which raises ",e.jsx(t,{tex:"u"}),"and speeds the DCO up."]})]}),e.jsxs("section",{children:[e.jsx("h2",{children:"Known parameters (this page)"}),e.jsx(d,{rows:h})]}),e.jsxs("section",{children:[e.jsx("h2",{children:"Inside the code — top-level loop"}),e.jsxs("p",{children:["The architecture in the diagram corresponds 1-to-1 with the body of ",e.jsx("code",{children:"run_simulation()"})," in ",e.jsx("code",{children:"sim/pll_model.py"}),". Each numbered comment maps onto one block in the diagram."]}),e.jsx(l,{language:"python",filename:"sim/pll_model.py",lineRange:"147-186",startLine:147,code:`for k in range(n):
+    # 1) Reference edge
+    t_ref_k = (k + 1) * T_ref + ref_jitter[k]
+
+    # 2) DSM step (modulus + cumulative residue for DTC)
+    m_k, e_dsm_k = dsm.step(alpha)
+    D_k = fdiv.cycles(m_k)
+
+    # 3) DCO advance; add phase noise (radians -> seconds)
+    f_dco_k = dco.frequency(u)
+    dt_pn = phi_dco_excess[k] * inv_2pi_f_dco_nom
+    t_div_k = t_div_prev + D_k / f_dco_k + dt_pn
+
+    # 4) DTC delay (cancels DSM residue; g_hat is the LMS coef)
+    tau_target = g_hat * e_dsm_k * params.T_dco_nominal if enable_dtc else 0.0
+    tau_dtc_k = float(dtc.apply(tau_target))
+    t_div_eff_k = t_div_k + tau_dtc_k
+
+    # 5) BBPD
+    e_k = t_div_eff_k - t_ref_k
+    s_k = bbpd.decide(e_k)
+
+    # 6) LMS update (optional)
+    if enable_lms:
+        g_hat = g_hat - lms_mu * s_k * e_dsm_k
+
+    # 7) Loop filter
+    u = lpf.step(s_k)`}),e.jsxs("p",{children:[e.jsxs("strong",{children:["Why one sample per ",e.jsx(t,{tex:"T_{ref}"}),"?"]}),"Every digital event in the hardware happens at the reference edge: BBPD samples, loop filter updates, DSM emits, DTC re-programs. Sampling at ",e.jsx(t,{tex:"f_{ref}"})," captures everything the loop reacts to and avoids ns-resolution oscillator simulation (which would need ~10⁹ samples for the same noise band)."]}),e.jsxs("p",{children:[e.jsxs("strong",{children:["Why ",e.jsx("code",{children:"(k + 1) * T_ref"})," on line 1?"]})," The divider and the reference start aligned at ",e.jsx(t,{tex:"t = 0"}),", so the ",e.jsx("em",{children:"first"})," divider edge falls near",e.jsx(t,{tex:"\\,T_{ref}\\,"}),", not at zero. Indexing from",e.jsx(t,{tex:"\\,k+1\\,"})," removes a constant 25 ns bias that would otherwise saturate the BBPD and prevent lock."]})]}),e.jsxs(s,{kind:"info",children:["We do not yet read ",e.jsx(t,{tex:"f_{ref}"})," from the paper — 40 MHz is a likely choice for that era of crystal-based references."]}),e.jsx(s,{kind:"limit",children:"The DCO is modeled as a continuous frequency-controlled phase accumulator with linear K_DCO. The real chip splits its tuning into a coarse capacitor bank plus a high-resolution dithered fine branch to reach the stated 70 Hz step, which we do not model."})]})}export{y as default};
+//# sourceMappingURL=FigArchitecture-CYXnRhqe.js.map
